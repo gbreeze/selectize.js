@@ -889,7 +889,7 @@ $.extend(Selectize.prototype, {
 			height_item   = self.$activeOption.outerHeight(true);
 			scroll        = self.$dropdown_content.scrollTop() || 0;
 			y             = self.$activeOption.offset().top - self.$dropdown_content.offset().top + scroll;
-			scroll_top    = y;
+			scroll_top    = y < 100 ? 0 : y; // always go to the full top
 			scroll_bottom = y - height_menu + height_item;
 
 			if (y + height_item > height_menu + scroll) {
@@ -1153,7 +1153,9 @@ $.extend(Selectize.prototype, {
 		self.hasOptions = results.items.length > 0 || has_create_option;
 		if (self.hasOptions) {
 			if (results.items.length > 0) {
-				$active_before = active_before && self.getOption(active_before);
+				// reset the selection and ignore the active_before to solve strange scroll positions
+				// this is working with option.closeDropDownOnInput
+				$active_before = null; //active_before && self.getOption(active_before);
 				if ($active_before && $active_before.length) {
 					$active = $active_before;
 				} else if (self.settings.mode === 'single' && self.items.length) {
@@ -1488,9 +1490,11 @@ $.extend(Selectize.prototype, {
 					$option = self.getOption(value);
 					value_next = self.getAdjacentOption($option, 1).attr('data-value');
 					self.refreshOptions(self.isFocused && inputMode !== 'single');
-					if (value_next) {
-						self.setActiveOption(self.getOption(value_next));
-					}
+					// Do not select the next item to avoid some strange scroll positions
+					// This is not an optimal solution if option.closeDropDownOnInsert = false
+					// if (value_next) {
+					// 	self.setActiveOption(self.getOption(value_next));
+					// }
 				}
 
 				// hide the menu if the maximum number of items have been selected or no options are left
