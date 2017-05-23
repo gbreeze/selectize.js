@@ -670,6 +670,8 @@
 	
 		var highlight = function(node) {
 			var skip = 0;
+			// Wrap matching part of text node with highlighting <span>, e.g.
+			// Soccer  ->  <span class="highlight">Soc</span>cer  for regex = /soc/i
 			if (node.nodeType === 3) {
 				var pos = node.data.search(regex);
 				if (pos >= 0 && node.data.length > 0) {
@@ -683,7 +685,10 @@
 					middlebit.parentNode.replaceChild(spannode, middlebit);
 					skip = 1;
 				}
-			} else if (node.nodeType === 1 && node.childNodes && !/(script|style)/i.test(node.tagName)) {
+			} 
+			// Recurse element node, looking for child text nodes to highlight, unless element 
+			// is childless, <script>, <style>, or already highlighted: <span class="hightlight">
+			else if (node.nodeType === 1 && node.childNodes && !/(script|style)/i.test(node.tagName) && ( node.className !== 'highlight' || node.tagName !== 'SPAN' )) {
 				for (var i = 0; i < node.childNodes.length; ++i) {
 					i += highlight(node.childNodes[i]);
 				}
@@ -1054,9 +1059,10 @@
 			if (e.type && e.type.toLowerCase() === 'keydown') {
 				keyCode = e.keyCode;
 				printable = (
-					(keyCode >= 97 && keyCode <= 122) || // a-z
-					(keyCode >= 65 && keyCode <= 90)  || // A-Z
 					(keyCode >= 48 && keyCode <= 57)  || // 0-9
+					(keyCode >= 65 && keyCode <= 90)   || // a-z
+					(keyCode >= 96 && keyCode <= 111)  || // numpad 0-9, numeric operators
+					(keyCode >= 186 && keyCode <= 222) || // semicolon, equal, comma, dash, etc.
 					keyCode === 32 // space
 				);
 	
@@ -1298,6 +1304,7 @@
 			if ($input.attr('autocapitalize')) {
 				$control_input.attr('autocapitalize', $input.attr('autocapitalize'));
 			}
+			$control_input[0].type = $input[0].type;
 	
 			self.$wrapper          = $wrapper;
 			self.$control          = $control;
@@ -1305,6 +1312,7 @@
 			self.$dropdown         = $dropdown;
 			self.$dropdown_content = $dropdown_content;
 	
+			$dropdown.on('mouseenter mousedown click', '[data-disabled]>[data-selectable]', function(e) { e.stopImmediatePropagation(); });
 			$dropdown.on('mouseenter', '[data-selectable]', function() { return self.onOptionHover.apply(self, arguments); });
 			$dropdown.on('mousedown click', '[data-selectable]', function() { return self.onOptionSelect.apply(self, arguments); });
 			watchChildEvent($control, 'mousedown', '*:not(input)', function() { return self.onItemSelect.apply(self, arguments); });
@@ -2007,7 +2015,7 @@
 				height_item   = self.$activeOption.outerHeight(true);
 				scroll        = self.$dropdown_content.scrollTop() || 0;
 				y             = self.$activeOption.offset().top - self.$dropdown_content.offset().top + scroll;
-				scroll_top    = y;
+				scroll_top    = y < 100 ? 0 : y; // always go to the full top
 				scroll_bottom = y - height_menu + height_item;
 	
 				if (y + height_item > height_menu + scroll) {
@@ -2109,7 +2117,8 @@
 			return {
 				fields      : settings.searchField,
 				conjunction : settings.searchConjunction,
-				sort        : sort
+				sort        : sort,
+				nesting     : settings.nesting
 			};
 		},
 	
@@ -2243,10 +2252,12 @@
 			$dropdown_content.html(html);
 	
 			// highlight matching terms inline
-			if (self.settings.highlight && results.query.length && results.tokens.length) {
+			if (self.settings.highlight) {
 				$dropdown_content.removeHighlight();
-				for (i = 0, n = results.tokens.length; i < n; i++) {
-					highlight($dropdown_content, results.tokens[i].regex);
+				if (results.query.length && results.tokens.length) {
+					for (i = 0, n = results.tokens.length; i < n; i++) {
+						highlight($dropdown_content, results.tokens[i].regex);
+					}
 				}
 			}
 	
@@ -2268,7 +2279,9 @@
 			self.hasOptions = results.items.length > 0 || has_create_option;
 			if (self.hasOptions) {
 				if (results.items.length > 0) {
-					$active_before = active_before && self.getOption(active_before);
+					// reset the selection and ignore the active_before to solve strange scroll positions
+					// this is working with option.closeDropDownOnInput
+					$active_before = null; //active_before && self.getOption(active_before);
 					if ($active_before && $active_before.length) {
 						$active = $active_before;
 					} else if (self.settings.mode === 'single' && self.items.length) {
@@ -2603,9 +2616,11 @@
 						$option = self.getOption(value);
 						value_next = self.getAdjacentOption($option, 1).attr('data-value');
 						self.refreshOptions(self.isFocused && inputMode !== 'single');
-						if (value_next) {
-							self.setActiveOption(self.getOption(value_next));
-						}
+						// Do not select the next item to avoid some strange scroll positions
+						// This is not an optimal solution if option.closeDropDownOnInsert = false
+						// if (value_next) {
+						// 	self.setActiveOption(self.getOption(value_next));
+						// }
 					}
 	
 					// hide the menu if the maximum number of items have been selected or no options are left
@@ -2872,7 +2887,9 @@
 	
 			if (self.settings.mode === 'single' && self.items.length) {
 				self.hideInput();
-				self.$control_input.blur(); // close keyboard on iOS
+				setTimeout(function() {
+					self.$control_input.blur(); // close keyboard on iOS
+				});
 			}
 	
 			self.isOpen = false;
@@ -3211,11 +3228,16 @@
 	
 			// add mandatory attributes
 			if (templateName === 'option' || templateName === 'option_create') {
-				html.attr('data-selectable', '');
+				if (!data[self.settings.disabledField]) {
+					html.attr('data-selectable', '');
+				}
 			}
 			else if (templateName === 'optgroup') {
 				id = data[self.settings.optgroupValueField] || '';
 				html.attr('data-group', id);
+				if(data[self.settings.disabledField]) {
+					html.attr('data-disabled', '');
+				}
 			}
 			if (templateName === 'option' || templateName === 'item') {
 				html.attr('data-value', value || '');
@@ -3297,6 +3319,7 @@
 		optgroupField: 'optgroup',
 		valueField: 'value',
 		labelField: 'text',
+		disabledField: 'disabled',
 		optgroupLabelField: 'label',
 		optgroupValueField: 'value',
 		lockOptgroupOrder: false,
@@ -3353,6 +3376,7 @@
 		var attr_data            = settings.dataAttr;
 		var field_label          = settings.labelField;
 		var field_value          = settings.valueField;
+		var field_disabled       = settings.disabledField;
 		var field_optgroup       = settings.optgroupField;
 		var field_optgroup_label = settings.optgroupLabelField;
 		var field_optgroup_value = settings.optgroupValueField;
@@ -3433,6 +3457,7 @@
 				var option             = readData($option) || {};
 				option[field_label]    = option[field_label] || $option.text();
 				option[field_value]    = option[field_value] || value;
+				option[field_disabled] = option[field_disabled] || $option.prop('disabled');
 				option[field_optgroup] = option[field_optgroup] || group;
 	
 				optionsMap[value] = option;
@@ -3453,6 +3478,7 @@
 					optgroup = readData($optgroup) || {};
 					optgroup[field_optgroup_label] = id;
 					optgroup[field_optgroup_value] = id;
+					optgroup[field_disabled] = $optgroup.prop('disabled');
 					settings_element.optgroups.push(optgroup);
 				}
 	
@@ -3509,184 +3535,6 @@
 	};
 	
 	
-	Selectize.define('drag_drop', function(options) {
-		if (!$.fn.sortable) throw new Error('The "drag_drop" plugin requires jQuery UI "sortable".');
-		if (this.settings.mode !== 'multi') return;
-		var self = this;
-	
-		self.lock = (function() {
-			var original = self.lock;
-			return function() {
-				var sortable = self.$control.data('sortable');
-				if (sortable) sortable.disable();
-				return original.apply(self, arguments);
-			};
-		})();
-	
-		self.unlock = (function() {
-			var original = self.unlock;
-			return function() {
-				var sortable = self.$control.data('sortable');
-				if (sortable) sortable.enable();
-				return original.apply(self, arguments);
-			};
-		})();
-	
-		self.setup = (function() {
-			var original = self.setup;
-			return function() {
-				original.apply(this, arguments);
-	
-				var $control = self.$control.sortable({
-					items: '[data-value]',
-					forcePlaceholderSize: true,
-					disabled: self.isLocked,
-					start: function(e, ui) {
-						ui.placeholder.css('width', ui.helper.css('width'));
-						$control.css({overflow: 'visible'});
-					},
-					stop: function() {
-						$control.css({overflow: 'hidden'});
-						var active = self.$activeItems ? self.$activeItems.slice() : null;
-						var values = [];
-						$control.children('[data-value]').each(function() {
-							values.push($(this).attr('data-value'));
-						});
-						self.setValue(values);
-						self.setActiveItem(active);
-					}
-				});
-			};
-		})();
-	
-	});
-	
-	Selectize.define('dropdown_header', function(options) {
-		var self = this;
-	
-		options = $.extend({
-			title         : 'Untitled',
-			headerClass   : 'selectize-dropdown-header',
-			titleRowClass : 'selectize-dropdown-header-title',
-			labelClass    : 'selectize-dropdown-header-label',
-			closeClass    : 'selectize-dropdown-header-close',
-	
-			html: function(data) {
-				return (
-					'<div class="' + data.headerClass + '">' +
-						'<div class="' + data.titleRowClass + '">' +
-							'<span class="' + data.labelClass + '">' + data.title + '</span>' +
-							'<a href="javascript:void(0)" class="' + data.closeClass + '">&times;</a>' +
-						'</div>' +
-					'</div>'
-				);
-			}
-		}, options);
-	
-		self.setup = (function() {
-			var original = self.setup;
-			return function() {
-				original.apply(self, arguments);
-				self.$dropdown_header = $(options.html(options));
-				self.$dropdown.prepend(self.$dropdown_header);
-			};
-		})();
-	
-	});
-	
-	Selectize.define('optgroup_columns', function(options) {
-		var self = this;
-	
-		options = $.extend({
-			equalizeWidth  : true,
-			equalizeHeight : true
-		}, options);
-	
-		this.getAdjacentOption = function($option, direction) {
-			var $options = $option.closest('[data-group]').find('[data-selectable]');
-			var index    = $options.index($option) + direction;
-	
-			return index >= 0 && index < $options.length ? $options.eq(index) : $();
-		};
-	
-		this.onKeyDown = (function() {
-			var original = self.onKeyDown;
-			return function(e) {
-				var index, $option, $options, $optgroup;
-	
-				if (this.isOpen && (e.keyCode === KEY_LEFT || e.keyCode === KEY_RIGHT)) {
-					self.ignoreHover = true;
-					$optgroup = this.$activeOption.closest('[data-group]');
-					index = $optgroup.find('[data-selectable]').index(this.$activeOption);
-	
-					if(e.keyCode === KEY_LEFT) {
-						$optgroup = $optgroup.prev('[data-group]');
-					} else {
-						$optgroup = $optgroup.next('[data-group]');
-					}
-	
-					$options = $optgroup.find('[data-selectable]');
-					$option  = $options.eq(Math.min($options.length - 1, index));
-					if ($option.length) {
-						this.setActiveOption($option);
-					}
-					return;
-				}
-	
-				return original.apply(this, arguments);
-			};
-		})();
-	
-		var getScrollbarWidth = function() {
-			var div;
-			var width = getScrollbarWidth.width;
-			var doc = document;
-	
-			if (typeof width === 'undefined') {
-				div = doc.createElement('div');
-				div.innerHTML = '<div style="width:50px;height:50px;position:absolute;left:-50px;top:-50px;overflow:auto;"><div style="width:1px;height:100px;"></div></div>';
-				div = div.firstChild;
-				doc.body.appendChild(div);
-				width = getScrollbarWidth.width = div.offsetWidth - div.clientWidth;
-				doc.body.removeChild(div);
-			}
-			return width;
-		};
-	
-		var equalizeSizes = function() {
-			var i, n, height_max, width, width_last, width_parent, $optgroups;
-	
-			$optgroups = $('[data-group]', self.$dropdown_content);
-			n = $optgroups.length;
-			if (!n || !self.$dropdown_content.width()) return;
-	
-			if (options.equalizeHeight) {
-				height_max = 0;
-				for (i = 0; i < n; i++) {
-					height_max = Math.max(height_max, $optgroups.eq(i).height());
-				}
-				$optgroups.css({height: height_max});
-			}
-	
-			if (options.equalizeWidth) {
-				width_parent = self.$dropdown_content.innerWidth() - getScrollbarWidth();
-				width = Math.round(width_parent / n);
-				$optgroups.css({width: width});
-				if (n > 1) {
-					width_last = width_parent - width * (n - 1);
-					$optgroups.eq(n - 1).css({width: width_last});
-				}
-			}
-		};
-	
-		if (options.equalizeHeight || options.equalizeWidth) {
-			hook.after(this, 'positionDropdown', equalizeSizes);
-			hook.after(this, 'refreshOptions', equalizeSizes);
-		}
-	
-	
-	});
-	
 	Selectize.define('remove_button', function(options) {
 		options = $.extend({
 				label     : '&times;',
@@ -3710,7 +3558,8 @@
 				 * @return {string}
 				 */
 				var append = function(html_container, html_element) {
-					return html_container + html_element;
+					return $('<span>').append(html_container)
+						.append(html_element);
 				};
 	
 				thisRef.setup = (function() {
@@ -3793,35 +3642,6 @@
 			} else {
 				multiClose(this, options);
 			}
-	});
-	
-	
-	Selectize.define('restore_on_backspace', function(options) {
-		var self = this;
-	
-		options.text = options.text || function(option) {
-			return option[this.settings.labelField];
-		};
-	
-		this.onKeyDown = (function() {
-			var original = self.onKeyDown;
-			return function(e) {
-				var index, option;
-				if (e.keyCode === KEY_BACKSPACE && this.$control_input.val() === '' && !this.$activeItems.length) {
-					index = this.caretPos - 1;
-					if (index >= 0 && index < this.items.length) {
-						option = this.options[this.items[index]];
-						if (this.deleteSelection(e)) {
-							this.setTextboxValue(options.text.apply(this, [option]));
-							this.refreshOptions(true);
-						}
-						e.preventDefault();
-						return;
-					}
-				}
-				return original.apply(this, arguments);
-			};
-		})();
 	});
 	
 
