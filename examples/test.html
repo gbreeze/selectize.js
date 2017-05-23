@@ -46,6 +46,7 @@
 					closeAfterSelect: true,
 					labelField: 'name',
 					searchField: ['name'],
+					sortField: {field:'name', direction:'asc'},
 					create: true,
 					persist: true,
 					lockOptgroupOrder: true,
@@ -66,6 +67,13 @@
 							return `<div class="${colorClass}">${escape(item.name)}</div>`
 						}
 					},
+					// score: function(search) {
+					// 	var score = this.getScoreFunction(search);
+					// 	return function(item) {
+					// 		var x = item;
+					// 		return score(item) + (item.type == 'fl' ? 0.1 : 0);
+					// 	};
+					// },
 					plugins: ['remove_button'],
 					onChange: function () {
 						// bubble it up to allow change handler on custom element, and to trigger data binding on original select element
