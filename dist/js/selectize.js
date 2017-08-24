@@ -1578,7 +1578,10 @@
 					}
 					if (!groups.hasOwnProperty(optgroup)) {
 						groups[optgroup] = document.createDocumentFragment();
-						groups_order.push(optgroup);
+						groups_order.push({
+						    key: optgroup,
+						    $order: ((self.optgroups.hasOwnProperty(optgroup) === true) ? (self.optgroups[optgroup].$order || 0) : 0)
+						});
 					}
 					groups[optgroup].appendChild(option_html);
 				}
@@ -1586,17 +1589,15 @@
 	
 			// sort optgroups
 			if (this.settings.lockOptgroupOrder) {
-				groups_order.sort(function(a, b) {
-					var a_order = self.optgroups[a].$order || 0;
-					var b_order = self.optgroups[b].$order || 0;
-					return a_order - b_order;
-				});
+			    groups_order.sort(function(a, b) {
+			        return a.$order - b.$order;
+			    });
 			}
 	
 			// render optgroup headers & join groups
 			html = document.createDocumentFragment();
 			for (i = 0, n = groups_order.length; i < n; i++) {
-				optgroup = groups_order[i];
+				optgroup = groups_order[i].key;
 				if (self.optgroups.hasOwnProperty(optgroup) && groups[optgroup].childNodes.length) {
 					// render the optgroup header and options within it,
 					// then pass it to the wrapper template
